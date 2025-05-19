@@ -6,7 +6,14 @@ import os
 import base64
 import numpy as np
 import matplotlib.pyplot as plt
-from your_utils_module import draw_boxes
+
+
+def draw_boxes(image, results):
+    for box in results.boxes:
+        x1, y1, x2, y2 = box.xyxy[0].int().tolist()
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    return image
+
 
 st.set_page_config(page_title="Smart Retail Detector")
 
