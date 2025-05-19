@@ -1,0 +1,8 @@
+streamlit
+ultralytics>=8.0.20
+opencv-python
+Pillow
+matplotlib
+numpy
+torch
+pyyaml
