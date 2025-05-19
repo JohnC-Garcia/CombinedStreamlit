@@ -7,12 +7,14 @@ import base64
 import numpy as np
 import matplotlib.pyplot as plt
 
+import cv2
 
-def draw_boxes(image, results):
+def draw_boxes(image, results, color=(0, 255, 0)):
     for box in results.boxes:
         x1, y1, x2, y2 = box.xyxy[0].int().tolist()
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
     return image
+
 
 
 st.set_page_config(page_title="Smart Retail Detector")
