@@ -9,10 +9,14 @@ import matplotlib.pyplot as plt
 
 import cv2
 
-def draw_boxes(image, results, color=(0, 255, 0)):
+def draw_boxes(image, results, color=(0, 255, 0), label=None):
     for box in results.boxes:
-        x1, y1, x2, y2 = box.xyxy[0].int().tolist()
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+
+        if label:
+            cv2.putText(image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, color, 2, cv2.LINE_AA)
     return image
 
 
