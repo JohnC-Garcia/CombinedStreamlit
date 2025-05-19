@@ -6,6 +6,7 @@ import os
 import base64
 import numpy as np
 import matplotlib.pyplot as plt
+from your_utils_module import draw_boxes
 
 st.set_page_config(page_title="Smart Retail Detector")
 
