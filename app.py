@@ -10,15 +10,15 @@ def draw_boxes(image, boxes, color=(0, 255, 0), label=None):
     for i in range(len(boxes)):
         x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
-
         if label:
             cv2.putText(image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
                         0.5, color, 2, cv2.LINE_AA)
     return image
 
+
 st.set_page_config(page_title="Smart Retail Detector")
 st.title("🧠📦 Human + Product Detection & Heatmap")
-st.write("Detect people and/or products in video, visualize heatmaps, and download the annotated result.")
+st.write("Detect people and/or products in video, visualize heatmaps by segment, and download the result.")
 
 @st.cache_resource
 def load_models():
@@ -27,6 +27,7 @@ def load_models():
     return human_model, product_model
 
 human_model, product_model = load_models()
+
 
 task = st.radio("Select detection task:", ["Human Detection Only", "Product Detection Only", "Both"])
 uploaded_file = st.file_uploader("Upload a video", type=["mp4"])
@@ -40,67 +41,64 @@ if uploaded_file:
     tfile_path = tfile.name
 
     cap = cv2.VideoCapture(tfile_path)
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    output_path = os.path.join(tempfile.gettempdir(), "annotated_output.mp4")
+    output_path = "/mnt/data/annotated_output.mp4"
     out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
 
     preview_frames = []
-    heatmap = np.zeros((height, width), dtype=np.float32)
+    heatmaps = [np.zeros((height, width), dtype=np.float32) for _ in range(10)]
     total_human_boxes = 0
     total_product_boxes = 0
 
-    progress_bar = st.progress(0.0)
+    frame_index = 0
+    segment_length = total_frames // 10
 
-    with st.spinner("Running detection..."):
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+    progress_bar = st.progress(0)
 
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            annotated = rgb_frame.copy()
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-            # Human detection
-            if task in ["Human Detection Only", "Both"]:
-                results_human = human_model(rgb_frame, verbose=False)
-                if results_human and len(results_human[0].boxes) > 0:
-                    human_boxes = results_human[0].boxes
-                    annotated = draw_boxes(annotated, human_boxes, color=(255, 0, 0), label="Human")
-                    for i in range(len(human_boxes)):
-                        x1, y1, x2, y2 = human_boxes.xyxy[i].cpu().numpy().astype(int)
-                        heatmap[y1:y2, x1:x2] += 1
-                    total_human_boxes += len(human_boxes)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        annotated = rgb_frame.copy()
 
-            # Product detection
-            if task in ["Product Detection Only", "Both"]:
-                results_product = product_model(rgb_frame)
-                if results_product and len(results_product[0].boxes) > 0:
-                    product_boxes = results_product[0].boxes
-                    annotated = draw_boxes(annotated, product_boxes, color=(0, 255, 0), label="Product")
-                    total_product_boxes += len(product_boxes)
+        # Human detection
+        if task in ["Human Detection Only", "Both"]:
+            results_human = human_model(rgb_frame, verbose=False)
+            if results_human and len(results_human[0].boxes) > 0:
+                human_boxes = results_human[0].boxes
+                annotated = draw_boxes(annotated, human_boxes, color=(255, 0, 0), label="Human")
+                for i in range(len(human_boxes)):
+                    x1, y1, x2, y2 = human_boxes.xyxy[i].cpu().numpy().astype(int)
+                    segment_id = min(frame_index // segment_length, 9)
+                    heatmaps[segment_id][y1:y2, x1:x2] += 1
+                total_human_boxes += len(human_boxes)
 
-            out.write(cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
+        # Product detection
+        if task in ["Product Detection Only", "Both"]:
+            results_product = product_model(rgb_frame)
+            if results_product and len(results_product[0].boxes) > 0:
+                product_boxes = results_product[0].boxes
+                annotated = draw_boxes(annotated, product_boxes, color=(0, 255, 0), label="Product")
+                total_product_boxes += len(product_boxes)
 
-            if int(cap.get(cv2.CAP_PROP_POS_FRAMES)) < 5:
-                preview_frames.append((rgb_frame, annotated))
+        out.write(cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
 
-            current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-            progress_bar.progress(min(current_frame / frame_count, 0.999))
+        if frame_index < 5:
+            preview_frames.append((rgb_frame, annotated))
+
+        frame_index += 1
+        progress_bar.progress(min(frame_index / total_frames, 1.0))
 
     cap.release()
     out.release()
 
-    progress_bar.progress(1.0)
-    st.success("✅ Detection complete!")
-
-    # Normalize and display heatmap
-    heatmap_norm = cv2.normalize(heatmap, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
-
+    st.success("✅ Processing complete!")
     st.subheader("🖼️ Detection Preview (First 5 Frames)")
     for i, (orig, ann) in enumerate(preview_frames):
         st.markdown(f"**Frame {i+1}**")
@@ -110,8 +108,11 @@ if uploaded_file:
         with col2:
             st.image(ann, caption="With Detections", use_column_width=True)
 
-    st.subheader("🔥 Heatmap of Human Detection Density")
-    st.image(heatmap_color, caption="Detection Heatmap (Humans Only)", use_column_width=True)
+    st.subheader("🔥 Heatmaps of Human Detections (10 Segments)")
+    segment_id = st.slider("Select segment (1 = start, 10 = end):", 1, 10, 1)
+    heatmap_norm = cv2.normalize(heatmaps[segment_id - 1], None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
+    st.image(heatmap_color, caption=f"Detection Heatmap - Segment {segment_id} (Humans Only)", use_column_width=True)
 
     st.subheader("📊 Analytics")
     if task in ["Human Detection Only", "Both"]:
@@ -120,8 +121,11 @@ if uploaded_file:
         st.write(f"📦 Total product detections: **{total_product_boxes}**")
 
     st.subheader("📥 Download Annotated Video")
-    with open(output_path, "rb") as file:
-        video_bytes = file.read()
-        b64 = base64.b64encode(video_bytes).decode()
-        href = f'<a href="data:video/mp4;base64,{b64}" download="annotated_video.mp4">▶️ Click here to download annotated video</a>'
-        st.markdown(href, unsafe_allow_html=True)
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+        with open(output_path, "rb") as file:
+            video_bytes = file.read()
+            b64 = base64.b64encode(video_bytes).decode()
+            href = f'<a href="data:video/mp4;base64,{b64}" download="annotated_video.mp4">▶️ Click here to download annotated video</a>'
+            st.markdown(href, unsafe_allow_html=True)
+    else:
+        st.warning("⚠️ Output video not available. Please try reprocessing.")
