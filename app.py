@@ -43,6 +43,7 @@ if uploaded_file:
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     output_path = os.path.join(tempfile.gettempdir(), "annotated_output.mp4")
     out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
@@ -53,6 +54,8 @@ if uploaded_file:
     total_product_boxes = 0
 
     frame_index = 0
+    progress_bar = st.progress(0)
+
     with st.spinner("Running detection..."):
         while cap.isOpened():
             ret, frame = cap.read()
@@ -90,9 +93,12 @@ if uploaded_file:
                 preview_frames.append((rgb_frame, annotated))
 
             frame_index += 1
+            progress_bar.progress(min(frame_index / frame_count, 1.0))
 
     cap.release()
     out.release()
+    progress_bar.empty()
+    st.success("✅ Detection complete!")
 
     # Normalize and display heatmap
     heatmap_norm = cv2.normalize(heatmap, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
