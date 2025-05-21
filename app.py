@@ -18,7 +18,7 @@ def draw_boxes(image, boxes, color=(0, 255, 0), label=None):
 
 st.set_page_config(page_title="Smart Retail Detector")
 st.title("🧠📦 Human + Product Detection & Heatmap")
-st.write("Detect people and/or products in video, visualize heatmaps, and download the annotated result.")
+st.write("Detect people and/or products in video, visualize heatmaps (for humans), and download the annotated result.")
 
 @st.cache_resource
 def load_models():
@@ -65,7 +65,7 @@ if uploaded_file:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             annotated = rgb_frame.copy()
 
-            # Human detection
+            # Human detection (always used for heatmap)
             if task in ["Human Detection Only", "Both"]:
                 results_human = human_model(rgb_frame, verbose=False)
                 if results_human and len(results_human[0].boxes) > 0:
@@ -73,18 +73,15 @@ if uploaded_file:
                     annotated = draw_boxes(annotated, human_boxes, color=(255, 0, 0), label="Human")
                     for i in range(len(human_boxes)):
                         x1, y1, x2, y2 = human_boxes.xyxy[i].cpu().numpy().astype(int)
-                        heatmap[y1:y2, x1:x2] += 1
+                        heatmap[y1:y2, x1:x2] += 1  # <-- Heatmap only for humans
                     total_human_boxes += len(human_boxes)
 
-            # Product detection
+            # Product detection (no heatmap for this)
             if task in ["Product Detection Only", "Both"]:
                 results_product = product_model(rgb_frame)
                 if results_product and len(results_product[0].boxes) > 0:
                     product_boxes = results_product[0].boxes
                     annotated = draw_boxes(annotated, product_boxes, color=(0, 255, 0), label="Product")
-                    for i in range(len(product_boxes)):
-                        x1, y1, x2, y2 = product_boxes.xyxy[i].cpu().numpy().astype(int)
-                        heatmap[y1:y2, x1:x2] += 1
                     total_product_boxes += len(product_boxes)
 
             out.write(cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
@@ -100,9 +97,13 @@ if uploaded_file:
     progress_bar.empty()
     st.success("✅ Detection complete!")
 
-    # Normalize and display heatmap
-    heatmap_norm = cv2.normalize(heatmap, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
+    # Normalize and display heatmap (for humans only)
+    if task in ["Human Detection Only", "Both"]:
+        heatmap_norm = cv2.normalize(heatmap, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
+
+        st.subheader("🔥 Heatmap of Human Detection Density")
+        st.image(heatmap_color, caption="Human Detection Heatmap", use_column_width=True)
 
     st.subheader("🖼️ Detection Preview (First 5 Frames)")
     for i, (orig, ann) in enumerate(preview_frames):
@@ -112,9 +113,6 @@ if uploaded_file:
             st.image(orig, caption="Original", use_column_width=True)
         with col2:
             st.image(ann, caption="With Detections", use_column_width=True)
-
-    st.subheader("🔥 Heatmap of Detection Density")
-    st.image(heatmap_color, caption="Detection Heatmap", use_column_width=True)
 
     st.subheader("📊 Analytics")
     if task in ["Human Detection Only", "Both"]:
