@@ -58,44 +58,49 @@ if uploaded_file:
         frame_index = 0
         progress_bar = st.progress(0)
         with st.spinner("Running detection..."):
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    break
+            try:
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
 
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                annotated = rgb_frame.copy()
+                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    annotated = rgb_frame.copy()
 
-                # Human detection
-                if task in ["Human Detection Only", "Both"]:
-                    results_human = human_model(rgb_frame, verbose=False)
-                    if results_human and len(results_human[0].boxes) > 0:
-                        human_boxes = results_human[0].boxes
-                        annotated = draw_boxes(annotated, human_boxes, color=(255, 0, 0), label="Human")
-                        for i in range(len(human_boxes)):
-                            x1, y1, x2, y2 = human_boxes.xyxy[i].cpu().numpy().astype(int)
-                            segment_idx = min(9, int((frame_index / total_frames) * 10))
-                            heatmaps[segment_idx][y1:y2, x1:x2] += 1
-                        total_human_boxes += len(human_boxes)
+                    # Human detection
+                    if task in ["Human Detection Only", "Both"]:
+                        results_human = human_model(rgb_frame, verbose=False)
+                        if results_human and len(results_human[0].boxes) > 0:
+                            human_boxes = results_human[0].boxes
+                            annotated = draw_boxes(annotated, human_boxes, color=(255, 0, 0), label="Human")
+                            for i in range(len(human_boxes)):
+                                x1, y1, x2, y2 = human_boxes.xyxy[i].cpu().numpy().astype(int)
+                                segment_idx = min(9, int((frame_index / total_frames) * 10))
+                                heatmaps[segment_idx][y1:y2, x1:x2] += 1
+                            total_human_boxes += len(human_boxes)
 
-                # Product detection
-                if task in ["Product Detection Only", "Both"]:
-                    results_product = product_model(rgb_frame)
-                    if results_product and len(results_product[0].boxes) > 0:
-                        product_boxes = results_product[0].boxes
-                        annotated = draw_boxes(annotated, product_boxes, color=(0, 255, 0), label="Product")
-                        total_product_boxes += len(product_boxes)
+                    # Product detection
+                    if task in ["Product Detection Only", "Both"]:
+                        results_product = product_model(rgb_frame)
+                        if results_product and len(results_product[0].boxes) > 0:
+                            product_boxes = results_product[0].boxes
+                            annotated = draw_boxes(annotated, product_boxes, color=(0, 255, 0), label="Product")
+                            total_product_boxes += len(product_boxes)
 
-                out.write(cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
+                    out.write(cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
 
-                if frame_index < 5:
-                    preview_frames.append((rgb_frame, annotated))
+                    if frame_index < 5:
+                        preview_frames.append((rgb_frame, annotated))
 
-                frame_index += 1
-                progress_bar.progress(min(frame_index / total_frames, 1.0))
-
-            cap.release()
-            out.release()
+                    frame_index += 1
+                    if frame_index >= total_frames:
+                        break
+                    progress_bar.progress(min(frame_index / total_frames, 1.0))
+            except Exception as e:
+                st.error(f"⚠️ Detection failed: {e}")
+            finally:
+                cap.release()
+                out.release()
 
         st.success("✅ Detection complete!")
 
@@ -124,7 +129,7 @@ if uploaded_file:
             st.write(f"📦 Total product detections: **{total_product_boxes}**")
 
         # Video download
-        st.subheader("📥 Download Annotated Video")
+        st.subheader("📅 Download Annotated Video")
         if os.path.exists(output_path):
             with open(output_path, "rb") as file:
                 video_bytes = file.read()
