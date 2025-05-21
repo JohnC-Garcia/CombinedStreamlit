@@ -103,14 +103,12 @@ if uploaded_file:
 
         st.success("✅ Detection complete!")
 
-        # Show segmented heatmaps
         st.subheader("🔥 Detection Heatmaps (Humans Only)")
         selected_segment = st.slider("Select segment:", 1, 10, 1)
         heatmap_norm = cv2.normalize(heatmaps[selected_segment - 1], None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
         st.image(heatmap_color, caption=f"Segment {selected_segment} Heatmap (Humans Only)", use_container_width=True)
 
-        # Preview
         st.subheader("🖼️ Detection Preview (First 5 Frames)")
         for i, (orig, ann) in enumerate(preview_frames):
             st.markdown(f"**Frame {i+1}**")
@@ -120,14 +118,12 @@ if uploaded_file:
             with col2:
                 st.image(ann, caption="With Detections", use_container_width=True)
 
-        # Analytics
         st.subheader("📊 Analytics")
         if task in ["Human Detection Only", "Both"]:
             st.write(f"👤 Total human detections: **{total_human_boxes}**")
         if task in ["Product Detection Only", "Both"]:
             st.write(f"📦 Total product detections: **{total_product_boxes}**")
 
-        # Video download
         st.subheader("📅 Download Annotated Video")
         if os.path.exists(output_path):
             with open(output_path, "rb") as file:
