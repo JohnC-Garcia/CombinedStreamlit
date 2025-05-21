@@ -18,7 +18,7 @@ def draw_boxes(image, boxes, color=(0, 255, 0), label=None):
 
 st.set_page_config(page_title="Smart Retail Detector")
 st.title("🧠📦 Human + Product Detection & Heatmap")
-st.write("Detect people and/or products in video, visualize heatmaps (for humans), and download the annotated result.")
+st.write("Detect people and/or products in video, visualize heatmaps, and download the annotated result.")
 
 @st.cache_resource
 def load_models():
@@ -40,10 +40,10 @@ if uploaded_file:
     tfile_path = tfile.name
 
     cap = cv2.VideoCapture(tfile_path)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     output_path = os.path.join(tempfile.gettempdir(), "annotated_output.mp4")
     out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
@@ -53,8 +53,7 @@ if uploaded_file:
     total_human_boxes = 0
     total_product_boxes = 0
 
-    frame_index = 0
-    progress_bar = st.progress(0)
+    progress_bar = st.progress(0.0)
 
     with st.spinner("Running detection..."):
         while cap.isOpened():
@@ -65,7 +64,7 @@ if uploaded_file:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             annotated = rgb_frame.copy()
 
-            # Human detection (always used for heatmap)
+            # Human detection
             if task in ["Human Detection Only", "Both"]:
                 results_human = human_model(rgb_frame, verbose=False)
                 if results_human and len(results_human[0].boxes) > 0:
@@ -73,10 +72,10 @@ if uploaded_file:
                     annotated = draw_boxes(annotated, human_boxes, color=(255, 0, 0), label="Human")
                     for i in range(len(human_boxes)):
                         x1, y1, x2, y2 = human_boxes.xyxy[i].cpu().numpy().astype(int)
-                        heatmap[y1:y2, x1:x2] += 1  # <-- Heatmap only for humans
+                        heatmap[y1:y2, x1:x2] += 1
                     total_human_boxes += len(human_boxes)
 
-            # Product detection (no heatmap for this)
+            # Product detection
             if task in ["Product Detection Only", "Both"]:
                 results_product = product_model(rgb_frame)
                 if results_product and len(results_product[0].boxes) > 0:
@@ -86,24 +85,21 @@ if uploaded_file:
 
             out.write(cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
 
-            if frame_index < 5:
+            if int(cap.get(cv2.CAP_PROP_POS_FRAMES)) < 5:
                 preview_frames.append((rgb_frame, annotated))
 
-            frame_index += 1
-            progress_bar.progress(min(frame_index / frame_count, 1.0))
+            current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+            progress_bar.progress(min(current_frame / frame_count, 0.999))
 
     cap.release()
     out.release()
-    progress_bar.empty()
+
+    progress_bar.progress(1.0)
     st.success("✅ Detection complete!")
 
-    # Normalize and display heatmap (for humans only)
-    if task in ["Human Detection Only", "Both"]:
-        heatmap_norm = cv2.normalize(heatmap, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
-
-        st.subheader("🔥 Heatmap of Human Detection Density")
-        st.image(heatmap_color, caption="Human Detection Heatmap", use_column_width=True)
+    # Normalize and display heatmap
+    heatmap_norm = cv2.normalize(heatmap, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
 
     st.subheader("🖼️ Detection Preview (First 5 Frames)")
     for i, (orig, ann) in enumerate(preview_frames):
@@ -113,6 +109,9 @@ if uploaded_file:
             st.image(orig, caption="Original", use_column_width=True)
         with col2:
             st.image(ann, caption="With Detections", use_column_width=True)
+
+    st.subheader("🔥 Heatmap of Human Detection Density")
+    st.image(heatmap_color, caption="Detection Heatmap (Humans Only)", use_column_width=True)
 
     st.subheader("📊 Analytics")
     if task in ["Human Detection Only", "Both"]:
