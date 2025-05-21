@@ -7,8 +7,8 @@ import base64
 import numpy as np
 
 def draw_boxes(image, boxes, color=(0, 255, 0), label=None):
-    for i in range(len(boxes)):
-        x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
+    for box in boxes:
+        x1, y1, x2, y2 = map(int, box[:4])
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
         if label:
             cv2.putText(image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
@@ -71,19 +71,19 @@ if uploaded_file:
                     if task in ["Human Detection Only", "Both"]:
                         results_human = human_model(rgb_frame, verbose=False)
                         if results_human and len(results_human[0].boxes) > 0:
-                            human_boxes = results_human[0].boxes
+                            human_boxes = results_human[0].boxes.xyxy.cpu().numpy()
                             annotated = draw_boxes(annotated, human_boxes, color=(255, 0, 0), label="Human")
-                            for i in range(len(human_boxes)):
-                                x1, y1, x2, y2 = human_boxes.xyxy[i].cpu().numpy().astype(int)
+                            for box in human_boxes:
+                                x1, y1, x2, y2 = map(int, box[:4])
                                 segment_idx = min(9, int((frame_index / total_frames) * 10))
                                 heatmaps[segment_idx][y1:y2, x1:x2] += 1
                             total_human_boxes += len(human_boxes)
 
                     # Product detection
                     if task in ["Product Detection Only", "Both"]:
-                        results_product = product_model(rgb_frame)
+                        results_product = product_model(rgb_frame, verbose=False)
                         if results_product and len(results_product[0].boxes) > 0:
-                            product_boxes = results_product[0].boxes
+                            product_boxes = results_product[0].boxes.data.cpu().numpy()
                             annotated = draw_boxes(annotated, product_boxes, color=(0, 255, 0), label="Product")
                             total_product_boxes += len(product_boxes)
 
