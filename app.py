@@ -3,7 +3,6 @@ from ultralytics import YOLO, RTDETR
 import cv2
 import tempfile
 import os
-import base64
 import numpy as np
 
 def draw_boxes(image, boxes, color=(0, 255, 0), label=None):
@@ -109,7 +108,7 @@ if uploaded_file:
         selected_segment = st.slider("Select segment:", 1, 10, 1)
         heatmap_norm = cv2.normalize(heatmaps[selected_segment - 1], None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
-        st.image(heatmap_color, caption=f"Segment {selected_segment} Heatmap (Humans Only)", use_column_width=True)
+        st.image(heatmap_color, caption=f"Segment {selected_segment} Heatmap (Humans Only)", use_container_width=True)
 
         # Preview
         st.subheader("🖼️ Detection Preview (First 5 Frames)")
@@ -117,9 +116,9 @@ if uploaded_file:
             st.markdown(f"**Frame {i+1}**")
             col1, col2 = st.columns(2)
             with col1:
-                st.image(orig, caption="Original", use_column_width=True)
+                st.image(orig, caption="Original", use_container_width=True)
             with col2:
-                st.image(ann, caption="With Detections", use_column_width=True)
+                st.image(ann, caption="With Detections", use_container_width=True)
 
         # Analytics
         st.subheader("📊 Analytics")
@@ -132,9 +131,11 @@ if uploaded_file:
         st.subheader("📅 Download Annotated Video")
         if os.path.exists(output_path):
             with open(output_path, "rb") as file:
-                video_bytes = file.read()
-                b64 = base64.b64encode(video_bytes).decode()
-                href = f'<a href="data:video/mp4;base64,{b64}" download="annotated_video.mp4">▶️ Click here to download annotated video</a>'
-                st.markdown(href, unsafe_allow_html=True)
+                st.download_button(
+                    label="▶️ Click to Download Annotated Video",
+                    data=file,
+                    file_name="annotated_video.mp4",
+                    mime="video/mp4"
+                )
         else:
             st.warning("⚠️ Output video not available. Please try reprocessing.")
