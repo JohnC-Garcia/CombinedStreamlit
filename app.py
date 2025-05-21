@@ -5,13 +5,10 @@ import tempfile
 import os
 import base64
 import numpy as np
-import matplotlib.pyplot as plt
 
-import cv2
-
-def draw_boxes(image, results, color=(0, 255, 0), label=None):
-    for box in results.boxes:
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
+def draw_boxes(image, boxes, color=(0, 255, 0), label=None):
+    for i in range(len(boxes)):
+        x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
 
         if label:
@@ -19,14 +16,10 @@ def draw_boxes(image, results, color=(0, 255, 0), label=None):
                         0.5, color, 2, cv2.LINE_AA)
     return image
 
-
-
 st.set_page_config(page_title="Smart Retail Detector")
-
 st.title("🧠📦 Human + Product Detection & Heatmap")
 st.write("Detect people and/or products in video, visualize heatmaps, and download the annotated result.")
 
-# Load models
 @st.cache_resource
 def load_models():
     human_model = YOLO("human_weights.pt")
@@ -35,16 +28,13 @@ def load_models():
 
 human_model, product_model = load_models()
 
-# Model selection
 task = st.radio("Select detection task:", ["Human Detection Only", "Product Detection Only", "Both"])
-
 uploaded_file = st.file_uploader("Upload a video", type=["mp4"])
 
 if uploaded_file:
     st.video(uploaded_file)
     st.write("Processing full video... Please wait ⏳")
 
-    # Save to temp file
     tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
     tfile.write(uploaded_file.read())
     tfile_path = tfile.name
@@ -54,7 +44,6 @@ if uploaded_file:
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
 
-    # Output video path
     output_path = os.path.join(tempfile.gettempdir(), "annotated_output.mp4")
     out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
 
@@ -73,24 +62,27 @@ if uploaded_file:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             annotated = rgb_frame.copy()
 
-            # Detection logic
+            # Human detection
             if task in ["Human Detection Only", "Both"]:
                 results_human = human_model(rgb_frame, verbose=False)
-                if results_human and results_human[0].boxes:
-                    annotated = draw_boxes(annotated, results_human[0].boxes, color=(255, 0, 0), label="Human")
-                    for box in results_human[0].boxes:
-                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                if results_human and len(results_human[0].boxes) > 0:
+                    human_boxes = results_human[0].boxes
+                    annotated = draw_boxes(annotated, human_boxes, color=(255, 0, 0), label="Human")
+                    for i in range(len(human_boxes)):
+                        x1, y1, x2, y2 = human_boxes.xyxy[i].cpu().numpy().astype(int)
                         heatmap[y1:y2, x1:x2] += 1
-                    total_human_boxes += len(results_human[0].boxes)
+                    total_human_boxes += len(human_boxes)
 
+            # Product detection
             if task in ["Product Detection Only", "Both"]:
                 results_product = product_model(rgb_frame)
-                if results_product and results_product[0].boxes:
-                    annotated = draw_boxes(annotated, results_product[0].boxes, color=(0, 255, 0), label="Product")
-                    for box in results_product[0].boxes:
-                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                if results_product and len(results_product[0].boxes) > 0:
+                    product_boxes = results_product[0].boxes
+                    annotated = draw_boxes(annotated, product_boxes, color=(0, 255, 0), label="Product")
+                    for i in range(len(product_boxes)):
+                        x1, y1, x2, y2 = product_boxes.xyxy[i].cpu().numpy().astype(int)
                         heatmap[y1:y2, x1:x2] += 1
-                    total_product_boxes += len(results_product[0].boxes)
+                    total_product_boxes += len(product_boxes)
 
             out.write(cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
 
@@ -102,7 +94,7 @@ if uploaded_file:
     cap.release()
     out.release()
 
-    # Normalize heatmap
+    # Normalize and display heatmap
     heatmap_norm = cv2.normalize(heatmap, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
 
@@ -130,13 +122,3 @@ if uploaded_file:
         b64 = base64.b64encode(video_bytes).decode()
         href = f'<a href="data:video/mp4;base64,{b64}" download="annotated_video.mp4">▶️ Click here to download annotated video</a>'
         st.markdown(href, unsafe_allow_html=True)
-
-
-def draw_boxes(frame, boxes, color=(0, 255, 0), label=""):
-    for box in boxes:
-        xyxy = box.xyxy[0].cpu().numpy().astype(int)
-        x1, y1, x2, y2 = xyxy
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        if label:
-            cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    return frame
