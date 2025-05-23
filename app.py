@@ -226,53 +226,58 @@ if uploaded_file:
         else:
             st.write("No significant customer-product interactions detected (minimum 0.5 seconds required).")
 
-        # Generate annotated video
-        if st.button("Generate Final Video with Labels"):
-            cap = cv2.VideoCapture(tfile_path)
-            output_path = os.path.join(tempfile.gettempdir(), "final_labeled_output.mp4")
-            out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
+        # Generate annotated video automatically
+        st.subheader("🎬 Generating Final Video")
+        cap = cv2.VideoCapture(tfile_path)
+        output_path = os.path.join(tempfile.gettempdir(), "final_labeled_output.mp4")
+        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
 
-            frame_index = 0
-            with st.spinner("Generating final video with labels..."):
-                while cap.isOpened():
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_index = 0
+        video_progress = st.progress(0)
+        with st.spinner("Generating final video with labels..."):
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                    # Draw product boxes
-                    if frame_index in label_map:
-                        for box, cluster_id in label_map[frame_index]:
-                            x1, y1, x2, y2 = map(int, box[:4])
-                            label = product_names.get(cluster_id, f"Product {cluster_id+1}")
-                            cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                            cv2.putText(rgb_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                                        0.6, (0, 255, 0), 2, cv2.LINE_AA)
+                # Draw product boxes
+                if frame_index in label_map:
+                    for box, cluster_id in label_map[frame_index]:
+                        x1, y1, x2, y2 = map(int, box[:4])
+                        label = product_names.get(cluster_id, f"Product {cluster_id+1}")
+                        cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        cv2.putText(rgb_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.6, (0, 255, 0), 2, cv2.LINE_AA)
 
-                    # Draw customer boxes
-                    for customer_id, customer_data in tracked_customers.items():
-                        if frame_index in customer_data['boxes_by_frame']:
-                            box = customer_data['boxes_by_frame'][frame_index]
-                            x1, y1, x2, y2 = map(int, box[:4])
-                            cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-                            cv2.putText(rgb_frame, f"Customer {customer_id}", (x1, y1 - 10), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_AA)
+                # Draw customer boxes
+                for customer_id, customer_data in tracked_customers.items():
+                    if frame_index in customer_data['boxes_by_frame']:
+                        box = customer_data['boxes_by_frame'][frame_index]
+                        x1, y1, x2, y2 = map(int, box[:4])
+                        cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                        cv2.putText(rgb_frame, f"Customer {customer_id}", (x1, y1 - 10), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_AA)
 
-                    out.write(cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR))
-                    frame_index += 1
+                out.write(cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR))
+                frame_index += 1
+                video_progress.progress(min(frame_index / total_frames, 1.0))
 
-                cap.release()
-                out.release()
+            cap.release()
+            out.release()
 
-            st.success("Final labeled video is ready!")
+        st.success("Final labeled video is ready!")
 
-            with open(output_path, "rb") as file:
-                st.download_button(
-                    label="▶️ Download Final Labeled Video",
-                    data=file,
-                    file_name="final_labeled_output.mp4",
-                    mime="video/mp4"
-                )
+        # Load the video file once for download
+        with open(output_path, "rb") as video_file:
+            video_bytes = video_file.read()
+        
+        st.download_button(
+            label="▶️ Download Final Labeled Video",
+            data=video_bytes,
+            file_name="final_labeled_output.mp4",
+            mime="video/mp4"
+        )
 
     else:
         st.warning("No products detected in the video.")
