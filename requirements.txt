@@ -6,3 +6,4 @@ matplotlib
 numpy
 torch
 pyyaml
+scikit-learn
