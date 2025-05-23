@@ -4,34 +4,25 @@ import cv2
 import tempfile
 import os
 import numpy as np
-
-def draw_boxes(image, boxes, color=(0, 255, 0), label=None):
-    for box in boxes:
-        x1, y1, x2, y2 = map(int, box[:4])
-        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
-        if label:
-            cv2.putText(image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5, color, 2, cv2.LINE_AA)
-    return image
+from sklearn.cluster import KMeans
+import torchvision.transforms as T
+from collections import defaultdict
 
 st.set_page_config(page_title="Smart Retail Detector")
-st.title("🧠📦 Human + Product Detection & Heatmap")
-st.write("Detect people and/or products in video, visualize heatmaps, and download the annotated result.")
+st.title("🧠📦 Product Detection, Clustering & Relabeling")
+st.write("Upload a video to detect products, group them by visual similarity, and relabel interactively.")
 
 @st.cache_resource
-def load_models():
-    human_model = YOLO("human_weights.pt")
-    product_model = RTDETR("product_weights.pt")
-    return human_model, product_model
+def load_model():
+    return RTDETR("product_weights.pt")
 
-human_model, product_model = load_models()
+model = load_model()
 
-task = st.radio("Select detection task:", ["Human Detection Only", "Product Detection Only", "Both"])
 uploaded_file = st.file_uploader("Upload a video", type=["mp4"])
 
 if uploaded_file:
     st.video(uploaded_file)
-    st.write("Processing full video... Please wait ⏳")
+    st.write("Processing video... Please wait ⌛")
 
     tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
     tfile.write(uploaded_file.read())
@@ -43,95 +34,96 @@ if uploaded_file:
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    output_path = os.path.join(tempfile.gettempdir(), "annotated_output.mp4")
-    out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
+    transform = T.Compose([T.ToPILImage(), T.Resize((64, 64)), T.ToTensor()])
 
-    if not out.isOpened():
-        st.error("⚠️ Failed to open VideoWriter. Check output path and codec.")
-    else:
-        preview_frames = []
-        heatmaps = [np.zeros((height, width), dtype=np.float32) for _ in range(10)]
-        total_human_boxes = 0
-        total_product_boxes = 0
+    product_features = []
+    product_boxes_by_frame = defaultdict(list)
+
+    def extract_feature(crop):
+        return crop.mean(axis=(0, 1))
+
+    frame_index = 0
+    progress_bar = st.progress(0)
+    with st.spinner("Detecting and extracting features..."):
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = model(rgb_frame, verbose=False)
+
+            if results and len(results[0].boxes) > 0:
+                product_boxes = results[0].boxes.data.cpu().numpy()
+                for box in product_boxes:
+                    x1, y1, x2, y2 = map(int, box[:4])
+                    crop = rgb_frame[y1:y2, x1:x2]
+                    if crop.size == 0:
+                        continue
+                    feature = extract_feature(crop)
+                    product_features.append(feature)
+                    product_boxes_by_frame[frame_index].append((box, feature))
+
+            frame_index += 1
+            progress_bar.progress(min(frame_index / total_frames, 1.0))
+
+        cap.release()
+
+    st.success("Detection complete!")
+
+    # Clustering
+    if product_features:
+        k = min(10, len(product_features))
+        kmeans = KMeans(n_clusters=k, random_state=0).fit(product_features)
+        cluster_labels = kmeans.labels_
+
+        label_map = {}
+        idx = 0
+        for frame_idx, boxes in product_boxes_by_frame.items():
+            label_map[frame_idx] = []
+            for box, feat in boxes:
+                label_map[frame_idx].append((box, int(cluster_labels[idx])))
+                idx += 1
+
+        # Rename UI
+        st.subheader("📝 Rename Product Clusters")
+        product_names = {}
+        for i in range(k):
+            product_names[i] = st.text_input(f"Name for Product {i+1}", value=f"Product {i+1}")
+
+        # Annotate and save video
+        cap = cv2.VideoCapture(tfile_path)
+        output_path = os.path.join(tempfile.gettempdir(), "final_labeled_output.mp4")
+        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
 
         frame_index = 0
-        progress_bar = st.progress(0)
-        with st.spinner("Running detection..."):
-            try:
-                while cap.isOpened():
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
+        with st.spinner("Generating final video with labels..."):
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    annotated = rgb_frame.copy()
+                if frame_index in label_map:
+                    for box, cluster_id in label_map[frame_index]:
+                        x1, y1, x2, y2 = map(int, box[:4])
+                        label = product_names.get(cluster_id, f"Product {cluster_id+1}")
+                        cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        cv2.putText(rgb_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.6, (0, 255, 0), 2, cv2.LINE_AA)
 
-                    # Human detection
-                    if task in ["Human Detection Only", "Both"]:
-                        results_human = human_model(rgb_frame, verbose=False)
-                        if results_human and len(results_human[0].boxes) > 0:
-                            human_boxes = results_human[0].boxes.xyxy.cpu().numpy()
-                            annotated = draw_boxes(annotated, human_boxes, color=(255, 0, 0), label="Human")
-                            for box in human_boxes:
-                                x1, y1, x2, y2 = map(int, box[:4])
-                                segment_idx = min(9, int((frame_index / total_frames) * 10))
-                                heatmaps[segment_idx][y1:y2, x1:x2] += 1
-                            total_human_boxes += len(human_boxes)
+                out.write(cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR))
+                frame_index += 1
 
-                    # Product detection
-                    if task in ["Product Detection Only", "Both"]:
-                        results_product = product_model(rgb_frame, verbose=False)
-                        if results_product and len(results_product[0].boxes) > 0:
-                            product_boxes = results_product[0].boxes.data.cpu().numpy()
-                            annotated = draw_boxes(annotated, product_boxes, color=(0, 255, 0), label="Product")
-                            total_product_boxes += len(product_boxes)
+            cap.release()
+            out.release()
 
-                    out.write(cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
+        st.success("Final labeled video is ready!")
 
-                    if frame_index < 5:
-                        preview_frames.append((rgb_frame, annotated))
-
-                    frame_index += 1
-                    if frame_index >= total_frames:
-                        break
-                    progress_bar.progress(min(frame_index / total_frames, 1.0))
-            except Exception as e:
-                st.error(f"⚠️ Detection failed: {e}")
-            finally:
-                cap.release()
-                out.release()
-
-        st.success("✅ Detection complete!")
-
-        st.subheader("🔥 Detection Heatmaps (Humans Only)")
-        selected_segment = st.slider("Select segment:", 1, 10, 1)
-        heatmap_norm = cv2.normalize(heatmaps[selected_segment - 1], None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        heatmap_color = cv2.applyColorMap(heatmap_norm, cv2.COLORMAP_JET)
-        st.image(heatmap_color, caption=f"Segment {selected_segment} Heatmap (Humans Only)", use_container_width=True)
-
-        st.subheader("🖼️ Detection Preview (First 5 Frames)")
-        for i, (orig, ann) in enumerate(preview_frames):
-            st.markdown(f"**Frame {i+1}**")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.image(orig, caption="Original", use_container_width=True)
-            with col2:
-                st.image(ann, caption="With Detections", use_container_width=True)
-
-        st.subheader("📊 Analytics")
-        if task in ["Human Detection Only", "Both"]:
-            st.write(f"👤 Total human detections: **{total_human_boxes}**")
-        if task in ["Product Detection Only", "Both"]:
-            st.write(f"📦 Total product detections: **{total_product_boxes}**")
-
-        st.subheader("📅 Download Annotated Video")
-        if os.path.exists(output_path):
-            with open(output_path, "rb") as file:
-                st.download_button(
-                    label="▶️ Click to Download Annotated Video",
-                    data=file,
-                    file_name="annotated_video.mp4",
-                    mime="video/mp4"
-                )
-        else:
-            st.warning("⚠️ Output video not available. Please try reprocessing.")
+        with open(output_path, "rb") as file:
+            st.download_button(
+                label="▶️ Download Final Labeled Video",
+                data=file,
+                file_name="final_labeled_output.mp4",
+                mime="video/mp4"
+            )
