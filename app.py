@@ -9,6 +9,10 @@ import torchvision.transforms as T
 from collections import defaultdict
 import random
 
+# Fix for PyTorch/Streamlit compatibility
+import torch
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 st.set_page_config(page_title="Smart Retail Detector")
 st.title("🧠📦 Product Detection, Clustering & Relabeling")
 st.write("Upload a video to detect products, group them by visual similarity, and relabel interactively.")
@@ -23,9 +27,12 @@ model = load_model()
 def generate_colors(n_clusters):
     colors = []
     for i in range(n_clusters):
-        # Generate vibrant, distinct colors
-        hue = (i * 137.5) % 360  # Golden angle for good distribution
-        color = tuple(int(c) for c in cv2.cvtColor(np.uint8([[[hue, 255, 255]]]), cv2.COLOR_HSV2RGB)[0][0])
+        # Generate vibrant, distinct colors using a simpler approach
+        hue = int((i * 137.5) % 180)  # Keep hue within valid range for OpenCV
+        # Create HSV color and convert to RGB
+        hsv = np.uint8([[[hue, 255, 255]]])
+        rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+        color = tuple(int(c) for c in rgb[0][0])
         colors.append(color)
     return colors
 
